@@ -77,9 +77,9 @@ module Sinatra
       end
 
       # Allow nesting
-      def namespace(name, &block)
+      def namespace(name, options={}, &block)
         raise ArgumentError, "Missing block to param namespace declaration" unless block_given?
-        child = ParamRules.new(settings, :namespace, name, {:required => false}, self)  # block not required per se
+        child = ParamRules.new(settings, :namespace, name, options.merge(:required => false), self)  # block not required per se
         yield child
         @children << child
       end
@@ -195,7 +195,20 @@ module Sinatra
           children.delete_if { |child| child.name == name.to_s }
         end          
       end
-   
+
+
+      def validate_child_name(child, name, parent_params)
+        # validate child name (if :process_name is declared)
+        if child.options.has_key?(:process_name) == true then
+          value = parent_params.delete(name);
+          name = child.options[:process_name].call(name)
+          parent_params[name] = value;
+        end
+
+        return name.to_s
+      end
+
+
       # Validate our children against the given params, looking for missing 
       # required elements. Returns a list of the keys that we were able to
       # recognize.
@@ -204,21 +217,26 @@ module Sinatra
         children.each do |child|
           #puts ">>>>>>>>>> child.name = #{child.canonical_name}"
           if child.namespace?
-            recognized_keys << child.name
-            # NOTE: Can't get fancy and do this ||= w/i the below func call, due to 
-            # an apparent oddity of Ruby's scoping for method args
-            params[child.name] ||= HashWithIndifferentAccess.new   # create holder for subelements if missing
-            validate_child(child, params[child.name]) 
+            valid_namespace_names(child.name, params).each do |name|
+              name = validate_child_name(child, name, params)
+              recognized_keys << name
+              #puts "\n\nnNANAAAAMMMEEE:   " +name.to_s
+              # NOTE: Can't get fancy and do this ||= w/i the below func call, due to 
+              # an apparent oddity of Ruby's scoping for method args
+              params[name] ||= HashWithIndifferentAccess.new   # create holder for subelements if missing
+              validate_child(child, params[name])
+            end
           elsif params.has_key?(child.name)
-            recognized_keys << child.name
-            validate_child(child, params[child.name])
-            validate_value_and_type_cast!(child, params)
+            name = validate_child_name(child, child.name, params)
+            recognized_keys << name
+            validate_child(child, params[name])
+            validate_value_and_type_cast!(child, name, params)
           elsif child.required?
             raise MissingParam, "Request params missing required parameter '#{child.canonical_name}'"
           else
             # For setting defaults on missing parameters
             recognized_keys << child.name
-            validate_value_and_type_cast!(child, params)
+            validate_value_and_type_cast!(child, child.name, params)
           end
 
           # Finally, handle key renaming
@@ -253,9 +271,20 @@ module Sinatra
         end
       end
 
-      def validate_value_and_type_cast!(child, params)
+      # validates a param's hash identifier
+      def valid_namespace_names(name_regex, params)
+        valid_names = []
+        params.each_key do |param_name|
+          match = param_name.match(name_regex)
+          #puts param_name + " match: " + (param_name.match(name_regex)||[""])[0] + " regex: " + name_regex
+          valid_names.push param_name if match != nil && match[0] == param_name
+        end
+        return valid_names
+      end
+
+      def validate_value_and_type_cast!(child, name, params)
         return true if child.namespace?
-        value = params[child.name] # we may be recursive, eg, params[:filters][:player_creation_type]
+        value = params[name] # we may be recursive, eg, params[:filters][:player_creation_type]
         #puts "@@@@@@@@@@@@ VALUE(#{child.canonical_name}) = #{value.inspect}"
 
         # XXX Special catch for pagination with :to_id fields, since "player_creation_type"
@@ -317,7 +346,7 @@ module Sinatra
         end
 
         # Overwrite our original value, to make params safe
-        params[child.name] = value
+        params[name] = value
         #puts "+++++++++ #{child.canonical_name}: params[#{child.name}] = #{value.inspect} (#{params.object_id})"
       end
 

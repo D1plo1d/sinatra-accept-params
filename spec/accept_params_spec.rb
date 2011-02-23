@@ -7,12 +7,19 @@ class Application < Sinatra::Base
   set :show_exceptions, false
 
   get '/search' do
-    accept_params do |p|
-      p.integer :page, :default => 1, :minvalue => 1
-      p.integer :limit, :default => 20, :maxvalue => 100
-      p.boolean :wildcard, :default => false
-      p.string :search, :required => true
-      p.float :timeout, :default => 3.5
+  	begin
+		  accept_params do |p|
+		    p.integer :page, :default => 1, :minvalue => 1
+		    p.integer :limit, :default => 20, :maxvalue => 100
+		    p.boolean :wildcard, :default => false
+		    p.string :search, :required => true
+		    p.float :timeout, :default => 3.5
+		  end
+    rescue Exception => e
+    puts "\n<error>"
+    	puts "\n\n\n"+e.to_s
+    puts "\n</error>"
+    raise e
     end
     params_dump
   end
